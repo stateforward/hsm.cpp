@@ -1,0 +1,95 @@
+# CMake build directories
+build/
+cmake-build-*/
+out/
+
+# CMake generated files
+CMakeCache.txt
+CMakeFiles/
+cmake_install.cmake
+CTestTestfile.cmake
+compile_commands.json
+DartConfiguration.tcl
+install_manifest.txt
+*.cbp
+
+# Ninja build files
+build.ninja
+rules.ninja
+.ninja_deps
+.ninja_log
+
+# Generated executables and libraries
+*.exe
+*.dll
+*.so
+*.dylib
+*.a
+*.lib
+
+# Test results and coverage
+Testing/
+*.gcda
+*.gcno
+*.gcov
+coverage/
+
+# IDE files
+.vscode/
+.idea/
+*.swp
+*.swo
+*~
+
+# macOS files
+.DS_Store
+.DS_Store?
+._*
+.Spotlight-V100
+.Trashes
+ehthumbs.db
+Thumbs.db
+
+# Windows files
+Thumbs.db
+ehthumbs.db
+Desktop.ini
+
+# Linux files
+*~
+
+# Temporary files
+*.tmp
+*.temp
+*.bak
+*.orig
+
+# Benchmark results (if generated in root)
+# cthsm_benchmark_results.csv
+# cthsm_benchmark_results.json
+.snapshots/
+
+# Dependencies and packages
+_deps/
+packages/
+node_modules/
+
+# Logs
+*.log
+logs/
+
+# Package files
+*.deb
+*.rpm
+*.tar.gz
+*.zip
+
+# Documentation builds
+docs/_build/
+docs/build/
+
+# Editor backups
+*.bak
+*.backup
+.cache/
+build*/

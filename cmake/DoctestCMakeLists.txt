@@ -1,0 +1,20 @@
+cmake_minimum_required(VERSION 3.16)
+project(doctest LANGUAGES CXX VERSION 2.4.11)
+
+add_library(doctest INTERFACE)
+add_library(doctest::doctest ALIAS doctest)
+
+if(NOT CMAKE_VERSION VERSION_LESS 3.16)
+    target_include_directories(doctest INTERFACE
+        $<BUILD_INTERFACE:${CMAKE_CURRENT_SOURCE_DIR}/>
+        $<INSTALL_INTERFACE:include/doctest/>
+    )
+else()
+    target_include_directories(doctest INTERFACE ${CMAKE_CURRENT_SOURCE_DIR}/)
+endif()
+
+add_library(doctest_with_main INTERFACE)
+add_library(doctest::doctest_with_main ALIAS doctest_with_main)
+
+target_compile_definitions(doctest_with_main INTERFACE DOCTEST_CONFIG_IMPLEMENT_WITH_MAIN)
+target_link_libraries(doctest_with_main INTERFACE doctest)
