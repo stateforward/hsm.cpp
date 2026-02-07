@@ -3314,6 +3314,10 @@ public:
   // Events dispatched before start() are queued and processed after
   // initial state entry. This method is idempotent.
   TaskType start() noexcept {
+    // Idempotent: return a completed (empty) task if already started
+    if (started()) {
+      return TaskType{};
+    }
     // Initialize coroutine frame pool (deferred to avoid static init issues)
     if (!coro_pool_) {
       coro_pool_.emplace();
@@ -3326,6 +3330,10 @@ public:
   // Start the HSM with an external cancellation signal.
   // The signal can be used to cancel long-running activities/timers.
   TaskType start(SignalType& signal) noexcept {
+    // Idempotent: return a completed (empty) task if already started
+    if (started()) {
+      return TaskType{};
+    }
     signal_ = &signal;
     // Initialize coroutine frame pool (deferred to avoid static init issues)
     if (!coro_pool_) {
@@ -3517,6 +3525,25 @@ public:
     constexpr auto kind = T::kind;
     constexpr std::size_t id = event_index<kind>();
     return dispatch_typed_by_id<id>(e);
+  }
+
+  // Synchronous dispatch: process event inline without queue or coroutine.
+  // This is the fast path for single-threaded / manual-drive usage where
+  // the caller owns the run loop and does not need ISR-safety or
+  // cross-thread dispatch.  Bypasses the event queue, atomics, variant
+  // storage, and coroutine resume/suspend entirely.
+  template <typename T>
+  constexpr result_t process() noexcept {
+    constexpr auto kind = T::kind;
+    constexpr std::size_t id = event_index<kind>();
+    return dispatch_typed_by_id_core<id>(T{});
+  }
+
+  template <typename T>
+  constexpr result_t process(const T &e) noexcept {
+    constexpr auto kind = T::kind;
+    constexpr std::size_t id = event_index<kind>();
+    return dispatch_typed_by_id_core<id>(e);
   }
 
   // Operation invocation API. Resolves the named operation at

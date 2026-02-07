@@ -518,9 +518,11 @@ static constexpr auto model_guarded = define(
 // six-phase ring:
 //   NS_Green -> NS_Yellow -> AllRed1 -> EW_Green -> EW_Yellow -> AllRed2 -> NS_Green
 // States are nested to exercise deeper entry/exit paths.
+// Transitions use source() DSL at the Operational parent level.
 static constexpr auto model_traffic = define(
     "Traffic",
     state("Operational",
+          initial(target("/Traffic/Operational/NS")),
           state("NS",
                 state("Green", entry(traffic_entry), exit(traffic_exit)),
                 state("Yellow", entry(traffic_entry), exit(traffic_exit)),
@@ -531,7 +533,6 @@ static constexpr auto model_traffic = define(
                 initial(target("/Traffic/Operational/EW/Green"))),
           state("AllRed1", entry(traffic_entry), exit(traffic_exit)),
           state("AllRed2", entry(traffic_entry), exit(traffic_exit)),
-          // Phase ring driven by T
           transition(on<T>(), source("/Traffic/Operational/NS/Green"),
                      target("/Traffic/Operational/NS/Yellow")),
           transition(on<T>(), source("/Traffic/Operational/NS/Yellow"),
@@ -556,13 +557,11 @@ struct TrafficSM : BenchInstance, HSM<model_traffic, TrafficSM> {};
 static BenchmarkRow run_ping_pong(const GlobalConfig &cfg,
                                   const ScenarioSpec &scenario) {
   PingPongSM sm;
-  auto task = sm.start();
+  sm.start();
 
   auto loop = [&]() noexcept {
-    sm.template dispatch<E1>();
-    task.resume();
-    sm.template dispatch<E2>();
-    task.resume();
+    sm.template process<E1>();
+    sm.template process<E2>();
     doNotOptimize(sm);
   };
 
@@ -588,13 +587,11 @@ static BenchmarkRow run_ping_pong(const GlobalConfig &cfg,
 static BenchmarkRow run_hierarchical(const GlobalConfig &cfg,
                                      const ScenarioSpec &scenario) {
   HierarchicalSM sm;
-  auto task = sm.start();
+  sm.start();
 
   auto loop = [&]() noexcept {
-    sm.template dispatch<E1>();
-    task.resume();
-    sm.template dispatch<E2>();
-    task.resume();
+    sm.template process<E1>();
+    sm.template process<E2>();
     doNotOptimize(sm);
   };
 
@@ -620,13 +617,11 @@ static BenchmarkRow run_hierarchical(const GlobalConfig &cfg,
 static BenchmarkRow run_deep(const GlobalConfig &cfg,
                              const ScenarioSpec &scenario) {
   DeepSM sm;
-  auto task = sm.start();
+  sm.start();
 
   auto loop = [&]() noexcept {
-    sm.template dispatch<E1>();
-    task.resume();
-    sm.template dispatch<E2>();
-    task.resume();
+    sm.template process<E1>();
+    sm.template process<E2>();
     doNotOptimize(sm);
   };
 
@@ -652,11 +647,10 @@ static BenchmarkRow run_deep(const GlobalConfig &cfg,
 static BenchmarkRow run_guarded(const GlobalConfig &cfg,
                                 const ScenarioSpec &scenario) {
   GuardedSM sm;
-  auto task = sm.start();
+  sm.start();
 
   auto loop = [&]() noexcept {
-    sm.template dispatch<G>();
-    task.resume();
+    sm.template process<G>();
     doNotOptimize(sm);
   };
 
@@ -682,17 +676,13 @@ static BenchmarkRow run_guarded(const GlobalConfig &cfg,
 static BenchmarkRow run_traffic_light(const GlobalConfig &cfg,
                                       const ScenarioSpec &scenario) {
   TrafficSM sm;
-  auto task = sm.start();
+  sm.start();
 
   auto loop = [&]() noexcept {
-    sm.template dispatch<T>();
-    task.resume();
-    sm.template dispatch<T>();
-    task.resume();
-    sm.template dispatch<T>();
-    task.resume();
-    sm.template dispatch<T>();
-    task.resume();
+    sm.template process<T>();
+    sm.template process<T>();
+    sm.template process<T>();
+    sm.template process<T>();
     doNotOptimize(sm);
   };
 

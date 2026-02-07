@@ -25,6 +25,13 @@ template <typename Path> struct is_target<target_expr<Path> > : std::true_type
 {
 };
 
+template <typename T> struct is_source : std::false_type
+{
+};
+template <typename Path> struct is_source<source_expr<Path> > : std::true_type
+{
+};
+
 template <typename T> struct is_on : std::false_type
 {
 };
@@ -1090,6 +1097,28 @@ get_target_path (const Tuple &t)
     }
 }
 
+template <typename Tuple, std::size_t I>
+constexpr std::string_view
+get_source_path (const Tuple &t)
+{
+  if constexpr (I >= std::tuple_size_v<Tuple>)
+    {
+      return {};
+    }
+  else
+    {
+      using Type = std::decay_t<decltype (get<I> (t))>;
+      if constexpr (is_source<Type>::value)
+        {
+          return get<I> (t).path.view ();
+        }
+      else
+        {
+          return get_source_path<Tuple, I + 1> (t);
+        }
+    }
+}
+
 // History helpers – detect and extract history path wrappers
 
 using detail::deep_history_path;
@@ -1327,6 +1356,8 @@ collect_transitions (ModelData &data, populate_ctx<ModelData> &ctx,
 
   std::string_view target_path
       = get_target_path<decltype (node.elements), 0> (node.elements);
+  std::string_view source_path
+      = get_source_path<decltype (node.elements), 0> (node.elements);
   std::string_view event_name
       = get_event_name<decltype (node.elements), 0> (node.elements);
   hsm::kind_t event_kind_val
@@ -1500,6 +1531,17 @@ collect_transitions (ModelData &data, populate_ctx<ModelData> &ctx,
         }
     }
 
+  std::size_t resolved_source_id = current_state_id;
+  if (!source_path.empty ())
+    {
+      resolved_source_id
+          = resolve_target (data, source_path, current_state_id);
+      if (resolved_source_id == invalid_index)
+        {
+          detail::constexpr_assert ("Invalid source path in transition");
+        }
+    }
+
   hsm::Kind trans_kind = hsm::Kind::External;
   transition_kind trans_type = transition_kind::external;
 
@@ -1508,7 +1550,7 @@ collect_transitions (ModelData &data, populate_ctx<ModelData> &ctx,
       trans_kind = hsm::Kind::Internal;
       trans_type = transition_kind::internal;
     }
-  else if (target_id == current_state_id)
+  else if (target_id == resolved_source_id)
     {
       trans_kind = hsm::Kind::Self;
       // Note: hsm runtime expects external for self-transitions currently
@@ -1517,7 +1559,7 @@ collect_transitions (ModelData &data, populate_ctx<ModelData> &ctx,
 
   data.transitions[id]
       = transition_desc{ .id = id,
-                         .source_id = current_state_id,
+                         .source_id = resolved_source_id,
                          .target_id = target_id,
                          .type = trans_type,
                          .kind = trans_kind,
