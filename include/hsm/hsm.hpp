@@ -1,6 +1,7 @@
 #ifndef HSM_HSM_HPP
 #define HSM_HSM_HPP
 
+#include <any>
 #include <array>
 #include <atomic>
 #include <bit>
@@ -3640,6 +3641,22 @@ public:
     return std::get<idx>(attributes_);
   }
 
+  // Runtime name-keyed attribute accessor: returns std::any holding a copy
+  // of the attribute value, or an empty std::any if no attribute matches.
+  [[nodiscard]] std::any get(std::string_view name) noexcept {
+    std::any result;
+    if constexpr (attribute_count > 0) {
+      for_each_index<0, attribute_count>([&](auto I) {
+        constexpr std::size_t idx = I;
+        constexpr auto desc = std::get<idx>(attribute_tuple);
+        if (desc.name.view() == name) {
+          result = std::get<idx>(attributes_);
+        }
+      });
+    }
+    return result;
+  }
+
   // Runtime attribute mutation: update storage and emit ChangeEvent-kind
   // events that drive when("name") transitions.
   // Returns result_t. Fire-and-forget: sm.set<"attr">(value);
@@ -3678,6 +3695,55 @@ public:
       return dispatch_typed_by_id<id>(E{});
     } else {
       return Processed;
+    }
+  }
+
+  // Runtime name-keyed attribute mutation using std::any for type erasure.
+  // Returns QueueFull for unknown name or type mismatch, Processed otherwise.
+  result_t set(std::string_view name, const std::any& value) noexcept {
+    if constexpr (attribute_count == 0) {
+      (void)name; (void)value;
+      return QueueFull;
+    } else {
+      result_t result = QueueFull;
+      bool found = false;
+      for_each_index<0, attribute_count>([&](auto I) {
+        if (found) return;
+        constexpr std::size_t idx = I;
+        constexpr auto desc = std::get<idx>(attribute_tuple);
+        if (desc.name.view() != name) return;
+        found = true;
+        using T = std::tuple_element_t<idx, attribute_storage_type>;
+
+        const T* ptr = std::any_cast<T>(&value);
+        if (!ptr) { result = QueueFull; return; }
+
+        auto& slot = std::get<idx>(attributes_);
+        T new_value = *ptr;
+
+        bool changed = true;
+        if constexpr (requires(const T& a, const T& b) { a != b; }) {
+          if constexpr (std::is_floating_point_v<T>) {
+            changed = std::abs(slot - new_value) > std::numeric_limits<T>::epsilon();
+          } else {
+            changed = (slot != new_value);
+          }
+        }
+        if (!changed) { result = Processed; return; }
+
+        slot = new_value;
+
+        constexpr auto hash = detail::fnv1a_64(desc.name.view());
+        constexpr auto k = hsm::make_kind(hash, hsm::Kind::ChangeEvent);
+        constexpr std::size_t event_id = event_index<k>();
+        if constexpr (event_id != detail::invalid_index) {
+          using E = Event<k>;
+          result = dispatch_typed_by_id<event_id>(E{});
+        } else {
+          result = Processed;
+        }
+      });
+      return result;
     }
   }
 
