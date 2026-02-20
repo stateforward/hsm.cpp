@@ -81,6 +81,14 @@ Scenario: Traffic light controller (complex hierarchy)
 
 hsm_threaded is the threaded traffic-light variant included in the benchmark harness (not a separate library).
 
+Compile-time benchmarks (wall-clock compile time for equivalent models in `bench/compile_time`, hsm vs SML), same machine/toolchain, `-O2`, 5 runs (2026-02-20):
+
+| Model size | hsm avg (min/max) | sml avg (min/max) |
+|------------|--------------------|-------------------|
+| small (2 states, 2 transitions) | 0.645s (0.553/0.903) | 0.069s (0.067/0.071) |
+| medium (traffic light, 10 states, 6 transitions) | 0.834s (0.816/0.851) | 0.078s (0.073/0.084) |
+| large (20 states, 22 transitions, deep hierarchy) | 2.906s (2.798/3.101) | 0.103s (0.100/0.107) |
+
 hsm prioritizes **safety and predictability** (thread-free scheduling, ISR-safe dispatch, compile-time validation) while maintaining competitive performance against established HSM frameworks and hand-written baselines.
 
 ## Requirements
