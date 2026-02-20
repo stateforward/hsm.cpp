@@ -15,15 +15,73 @@ A modern, header-only C++20 library for building compile-time hierarchical state
 
 ## Performance
 
-Benchmarks on Apple M1 Pro (Release build, 1M iterations):
+Benchmarks on Apple M3 Max (16-core), macOS 15.1, Apple clang 16.0.0, Release build, `--iterations=1000000`, `--warmup=1000` (run on 2026-02-20).
+Throughput is in **millions of transitions per second (M/s)**. For the guarded scenario, the table shows **Dispatch/Transition** M/s because only every other dispatch transitions.
 
-| Scenario | hsm | vs QP | vs Boost.MSM |
-|----------|-------|-------|--------------|
-| Simple ping-pong | 123M/s | +65% | -54% |
-| Hierarchical states | 69M/s | -7% | -73% |
-| Guarded transitions | 127M/s | -4% | -49% |
+Scenario: Simple ping-pong (A<->B, no guards)
 
-hsm prioritizes **safety and predictability** (thread-free scheduling, ISR-safe dispatch, compile-time validation) while maintaining competitive performance with production HSM frameworks.
+| Library | M/s |
+|---------|-----|
+| hsm | 6211.2 |
+| vanilla_switch | 6493.5 |
+| vanilla_fp | 441.1 |
+| sml | 1394.7 |
+| boost_msm | 266.4 |
+| hfsm2 | 138.9 |
+| qp | 76.1 |
+
+Scenario: Hierarchical parent/child (P/C1/C2 with entry/exit)
+
+| Library | M/s |
+|---------|-----|
+| hsm | 6557.4 |
+| vanilla_switch | 7246.4 |
+| vanilla_fp | 450.9 |
+| sml | 1512.9 |
+| boost_msm | 273.4 |
+| hfsm2 | 135.3 |
+| qp | 74.2 |
+
+Scenario: Deep hierarchy (L1/L2/L3a<->L3b)
+
+| Library | M/s |
+|---------|-----|
+| hsm | 6825.9 |
+| vanilla_switch | 7434.9 |
+| vanilla_fp | 439.7 |
+| sml | 1465.2 |
+| boost_msm | 265.3 |
+| hfsm2 | 136.3 |
+| qp | 73.4 |
+
+Scenario: Guarded transition (every other dispatch transitions)
+
+| Library | Dispatch/Transition M/s |
+|---------|--------------------------|
+| hsm | 516.3/258.1 |
+| vanilla_switch | 506.3/253.2 |
+| vanilla_fp | 419.8/209.9 |
+| sml | 499.5/249.8 |
+| boost_msm | 248.9/124.4 |
+| hfsm2 | 391.5/195.8 |
+| qp | 131.1/65.5 |
+
+Scenario: Traffic light controller (complex hierarchy)
+
+| Library | M/s |
+|---------|-----|
+| hsm | 1091.1 |
+| hsm_threaded | 7.7 |
+| vanilla_switch | 691.6 |
+| vanilla_fp | 446.8 |
+| sml | 482.7 |
+| boost_msm | 197.1 |
+| hfsm2 | 179.0 |
+| qp | 66.5 |
+
+hsm_threaded is the threaded traffic-light variant included in the benchmark harness (not a separate library).
+
+hsm prioritizes **safety and predictability** (thread-free scheduling, ISR-safe dispatch, compile-time validation) while maintaining competitive performance against established HSM frameworks and hand-written baselines.
 
 ## Requirements
 
