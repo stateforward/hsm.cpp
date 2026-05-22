@@ -2220,6 +2220,53 @@ struct HSM : Instance {
     bool is_fallback{false};  // True if typed event was substituted as AnyEvent
   };
 
+  struct Queue {
+    std::array<QueueEntry, queue_storage_size> entries{};
+    std::atomic<std::size_t> head{0};
+    std::atomic<std::size_t> tail{0};
+
+    void Clear() noexcept {
+      head.store(0, std::memory_order_seq_cst);
+      tail.store(0, std::memory_order_seq_cst);
+    }
+
+    [[nodiscard]] std::size_t Len() const noexcept {
+      const auto current_head = head.load(std::memory_order_seq_cst);
+      const auto current_tail = tail.load(std::memory_order_seq_cst);
+      return current_tail - current_head;
+    }
+
+    [[nodiscard]] bool Full() const noexcept {
+      return Len() >= queue_capacity;
+    }
+
+    bool Push(const QueueEntry &entry) noexcept {
+      if (Full()) {
+        return false;
+      }
+
+      const auto current_tail = tail.load(std::memory_order_seq_cst);
+      entries[current_tail % queue_capacity] = entry;
+      tail.store(current_tail + 1, std::memory_order_seq_cst);
+      return true;
+    }
+
+    bool Pop(QueueEntry &entry, std::size_t limit) noexcept {
+      const auto current_head = head.load(std::memory_order_seq_cst);
+      if (current_head >= limit) {
+        return false;
+      }
+
+      entry = entries[current_head % queue_capacity];
+      return true;
+    }
+
+    void CommitPop() noexcept {
+      const auto current_head = head.load(std::memory_order_seq_cst);
+      head.store(current_head + 1, std::memory_order_seq_cst);
+    }
+  };
+
   // Helper trait: can the unified queue store an event of type E at
   // the given EventId index? This is used to avoid instantiating
   // std::variant::emplace with incompatible argument types, which
@@ -3027,14 +3074,12 @@ struct HSM : Instance {
   // Main event queue (for incoming and recalled events).
   //
   // Multi-producer (ISRs + tasks) single-consumer (engine) design:
-  // - queue_tail_: fetch_add for producers to claim slots (multi-producer safe)
-  // - queue_head_: updated only by engine (single consumer), batched for perf
+  // - queue_.tail: producer-side enqueue cursor
+  // - queue_.head: updated only by engine (single consumer), batched for perf
   // - processed_seq_: store-only by engine for result tracking
   //
   // Sequentially consistent ordering for MISRA compliance.
-  std::array<QueueEntry, queue_storage_size> queue_{};
-  std::atomic<std::size_t> queue_head_{0};
-  std::atomic<std::size_t> queue_tail_{0};
+  Queue queue_{};
 
   // Separate deferred event pool (UML 2.5 compliant).
   // Deferred events are moved here during processing and recalled to the
@@ -3247,8 +3292,7 @@ private:
     }
 
     // Initialize queue state (ready to accept pre-start events)
-    queue_head_.store(0, std::memory_order_seq_cst);
-    queue_tail_.store(0, std::memory_order_seq_cst);
+    queue_.Clear();
     current_state_id_ = detail::invalid_index;  // Not started yet
   }
 
@@ -3880,15 +3924,11 @@ private:
   // --- Unified queue helpers -------------------------------------------------
 
   [[nodiscard]] bool queue_empty() const noexcept {
-    auto head = queue_head_.load(std::memory_order_seq_cst);
-    auto tail = queue_tail_.load(std::memory_order_seq_cst);
-    return head == tail;
+    return queue_.Len() == 0;
   }
 
   [[nodiscard]] bool queue_full() const noexcept {
-    auto head = queue_head_.load(std::memory_order_seq_cst);
-    auto tail = queue_tail_.load(std::memory_order_seq_cst);
-    return (tail - head) >= queue_capacity;
+    return queue_.Full();
   }
 
   template <std::size_t EventId, typename E>
@@ -3896,16 +3936,13 @@ private:
   bool enqueue_event(const E &e, bool is_fallback = false) noexcept {
     // Main queue is single-consumer and intended for a single logical
     // producer; concurrent producers must provide external serialization.
-    if (queue_full()) {
+    QueueEntry entry{};
+    entry.event.template emplace<EventId>(e);
+    entry.event_id = EventId;
+    entry.is_fallback = is_fallback;
+    if (!queue_.Push(entry)) {
       return false;
     }
-
-    auto tail = queue_tail_.load(std::memory_order_seq_cst);
-    const std::size_t index = tail % queue_capacity;
-    queue_[index].event.template emplace<EventId>(e);
-    queue_[index].event_id = EventId;
-    queue_[index].is_fallback = is_fallback;
-    queue_tail_.store(tail + 1, std::memory_order_seq_cst);
 
     // Wake the engine so it processes the new event
     wake_signal_.set();
@@ -3953,15 +3990,11 @@ private:
       deferred_head_++;
 
       // Try to enqueue to main queue
-      auto tail = queue_tail_.load(std::memory_order_seq_cst);
-      if ((tail - queue_head_.load(std::memory_order_seq_cst)) >= queue_capacity) {
+      if (!queue_.Push(entry)) {
         // Main queue full - put back in deferred queue (at front)
         deferred_head_--;
         break;
       }
-      const std::size_t main_index = tail % queue_capacity;
-      queue_[main_index] = entry;
-      queue_tail_.store(tail + 1, std::memory_order_seq_cst);
     }
   }
 
@@ -3970,27 +4003,21 @@ private:
   // recalled to the main queue for reconsideration.
   //
   // Atomic optimization: processed_seq_ uses store instead of fetch_add since
-  // only the engine (single consumer) updates it. queue_head_ is committed
-  // AFTER processing each event to avoid data corruption from producer overwrites.
+  // only the engine (single consumer) updates it.
   void drain_queue_events() noexcept {
     // Take a snapshot of the tail at entry. We will process up to this
     // index and ignore any events enqueued later in this macrostep.
-    std::size_t limit = queue_tail_.load(std::memory_order_seq_cst);
+    std::size_t limit = queue_.tail.load(std::memory_order_seq_cst);
     auto state_at_entry = current_state_id_;
 
     // Local shadow of processed_seq_ - only write to atomic once per event
     std::uint64_t seq = processed_seq_.load(std::memory_order_relaxed);
 
     for (;;) {
-      std::size_t head = queue_head_.load(std::memory_order_seq_cst);
-      if (head >= limit) {
+      QueueEntry entry{};
+      if (!queue_.Pop(entry, limit)) {
         break;
       }
-
-      const std::size_t index = head % queue_capacity;
-      QueueEntry entry = queue_[index];
-      // NOTE: We copy entry BEFORE advancing head. Head is committed AFTER
-      // processing to prevent producers from overwriting while we're reading.
 
       // Stored event_id is used for timer events where kind-based lookup fails
       const std::size_t stored_event_id = entry.event_id;
@@ -4016,8 +4043,7 @@ private:
         // Move entire entry to deferred queue (preserves variant and event_id)
         (void) enqueue_deferred_entry(entry);
 
-        // Commit head AFTER processing - prevents data corruption
-        queue_head_.store(head + 1, std::memory_order_seq_cst);
+        queue_.CommitPop();
 
         // Mark as processed (Deferred) - store instead of fetch_add (single consumer)
         results_[seq % queue_capacity] = Deferred;
@@ -4046,8 +4072,7 @@ private:
         }
       }
 
-      // Commit head AFTER processing - prevents data corruption from producers
-      queue_head_.store(head + 1, std::memory_order_seq_cst);
+      queue_.CommitPop();
 
       // Write result to ring buffer - store instead of fetch_add (single consumer)
       results_[seq % queue_capacity] = result;
@@ -4060,7 +4085,7 @@ private:
         state_at_entry = current_state_id_;
         recall_deferred_events();
         // Update limit to include recalled events
-        limit = queue_tail_.load(std::memory_order_seq_cst);
+        limit = queue_.tail.load(std::memory_order_seq_cst);
       }
     }
   }
