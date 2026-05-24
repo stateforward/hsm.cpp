@@ -6,17 +6,16 @@
 using namespace hsm;
 
 // ============================================================================
-// Gap #25: Dispatch return value verification for source()-routed transitions.
+// Gap #25: Dispatch no-value path verification for source()-routed transitions.
 //
-// Confirms that dispatch()+resume() and process() return the expected result_t
-// values when source()-routed transitions are involved: source match, source
-// miss, guard fail on source match, and deferral with source match.
+// Confirms that dispatch()+resume() completes via the normal no-value path when
+// source()-routed transitions are involved: source match, source miss, guard
+// fail on source match, and deferral with source match.
 //
 // Key contract:
-// - dispatch() returns Processed on successful enqueue (always, unless queue full)
-// - process() returns Processed (always — it bypasses the queue)
-// - Deferred is an internal engine result visible in the queue drain path
-// - Source-miss is indistinguishable from guard-fail by return value
+// - dispatch() has no public result code.
+// - process() bypasses the queue and has no public result.
+// - Source-miss and guard-fail both leave state unchanged.
 // ============================================================================
 
 namespace {
@@ -75,18 +74,17 @@ struct SrcReturnSM : SrcReturnCtx, HSM<src_return_model, SrcReturnSM> {};
 // dispatch()+resume() path
 // ============================================================================
 
-TEST_CASE("source match returns Processed") {
+TEST_CASE("source match dispatch transitions") {
   SrcReturnSM sm;
   auto task = sm.start();
   CHECK(sm.state() == "/SR/P/A");
 
-  result_t r = sm.dispatch<SrcEvt>();
-  CHECK(r == Processed);
+  sm.dispatch<SrcEvt>();
   task.resume();
   CHECK(sm.state() == "/SR/P/B");
 }
 
-TEST_CASE("source miss returns Processed") {
+TEST_CASE("source miss dispatch leaves state unchanged") {
   SrcReturnSM sm;
   auto task = sm.start();
   CHECK(sm.state() == "/SR/P/A");
@@ -101,33 +99,30 @@ TEST_CASE("source miss returns Processed") {
   task.resume();
   CHECK(sm.state() == "/SR/P/C");
 
-  // SrcEvt from C: no source(C) for SrcEvt → source miss, but returns Processed
-  result_t r = sm.dispatch<SrcEvt>();
-  CHECK(r == Processed);  // enqueue succeeds regardless of source match
+  // SrcEvt from C: no source(C) for SrcEvt.
+  sm.dispatch<SrcEvt>();
   task.resume();
   CHECK(sm.state() == "/SR/P/C");  // no state change
 }
 
-TEST_CASE("source match + guard fail returns Processed") {
+TEST_CASE("source match + guard fail dispatch leaves state unchanged") {
   SrcReturnSM sm;
   auto task = sm.start();
   CHECK(sm.state() == "/SR/P/A");
 
-  result_t r = sm.dispatch<SrcGuardEvt>();
-  CHECK(r == Processed);  // enqueue succeeds; guard evaluated during drain
+  sm.dispatch<SrcGuardEvt>();
   task.resume();
   CHECK(sm.state() == "/SR/P/A");  // guard blocked the transition
   CHECK(sm.guard_calls == 1);
 }
 
-TEST_CASE("source match + defer returns Processed at enqueue") {
+TEST_CASE("source match + defer dispatch has no public result") {
   SrcReturnSM sm;
   auto task = sm.start();
   CHECK(sm.state() == "/SR/P/A");
 
   // SrcDeferEvt is deferred in state A
-  result_t r = sm.dispatch<SrcDeferEvt>();
-  CHECK(r == Processed);  // enqueue succeeds; deferral happens during drain
+  sm.dispatch<SrcDeferEvt>();
   task.resume();
   CHECK(sm.state() == "/SR/P/A");  // still in A, event deferred
 }
@@ -162,17 +157,16 @@ TEST_CASE("round-trip through all states via source-routed transitions") {
 // process() path
 // ============================================================================
 
-TEST_CASE("process source match returns Processed") {
+TEST_CASE("process source match applies transition") {
   SrcReturnSM sm;
   sm.start();
   CHECK(sm.state() == "/SR/P/A");
 
-  result_t r = sm.process<SrcEvt>();
-  CHECK(r == Processed);
+  sm.process<SrcEvt>();
   CHECK(sm.state() == "/SR/P/B");
 }
 
-TEST_CASE("process source miss returns Processed") {
+TEST_CASE("process source miss leaves state unchanged") {
   SrcReturnSM sm;
   sm.start();
   CHECK(sm.state() == "/SR/P/A");
@@ -182,19 +176,17 @@ TEST_CASE("process source miss returns Processed") {
   sm.process<SrcEvt>();  // B→C
   CHECK(sm.state() == "/SR/P/C");
 
-  // SrcEvt from C: source miss → Processed, no state change
-  result_t r = sm.process<SrcEvt>();
-  CHECK(r == Processed);
+  // SrcEvt from C: source miss, no state change.
+  sm.process<SrcEvt>();
   CHECK(sm.state() == "/SR/P/C");
 }
 
-TEST_CASE("process source match + guard fail returns Processed") {
+TEST_CASE("process source match + guard fail leaves state unchanged") {
   SrcReturnSM sm;
   sm.start();
   CHECK(sm.state() == "/SR/P/A");
 
-  result_t r = sm.process<SrcGuardEvt>();
-  CHECK(r == Processed);
+  sm.process<SrcGuardEvt>();
   CHECK(sm.state() == "/SR/P/A");
   CHECK(sm.guard_calls == 1);
 }

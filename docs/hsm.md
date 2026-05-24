@@ -562,12 +562,9 @@ struct HSM;
     * **Coroutine await**: `co_await sm.start();` — yields until the engine terminates.
 
 * **Dispatch**
-  * `result_t dispatch<EventType>()` or `result_t dispatch(const T& e)`: Typed event dispatch.
-  * `result_t dispatch<"name">()`: Named event dispatch.
-  * Return values:
-    * `Processed` - Event enqueued successfully
-    * `QueueFull` - Queue overflow, event rejected
-    * `Deferred` - Event deferred for later processing
+  * `void dispatch<EventType>()` or `void dispatch(const T& e)`: Typed event dispatch.
+  * `void dispatch<"name">()`: Named event dispatch.
+  * Normal dispatch and attribute set have no public result code; drive the task to observe completion.
   * All dispatch calls enqueue to the lock-free queue and wake the engine—safe from any context including ISRs.
   * While a dispatch is in progress (a *macrostep*), any nested calls to `dispatch`, `set<"name">`, `call<"name">`, or timer callbacks enqueue events into the unified queue; they are processed after the current macrostep completes.
 
@@ -653,7 +650,7 @@ When you call `group.dispatch(event)` (without an ID), the event is broadcast to
 
 * **Optimization**: The group flattens the hierarchy at compile-time. If you have nested groups (e.g., a Group containing another Group), `hsm` recursively expands them into a single flat tuple of machine references.
 * **Performance**: Iteration is linear O(N) over the total number of leaf machines, with no recursive function call overhead during dispatch.
-* **Short-circuiting**: Returns `true` if *at least one* machine handled the event. It continues dispatching to others even if handled, unless specific stopping logic is implemented (currently broadcast implies all receive it).
+* **Completion**: Dispatch returns no result. Drive each machine's task to observe processing completion.
 
 ### 2. Targeted Dispatch (`group.dispatch("id", event)`)
 
@@ -663,7 +660,7 @@ When you call `group.dispatch("service_A", event)`, the group routes the event t
   1. Does a direct child match the ID?
   2. If a child is a `Group`, recursively delegate the ID search to it.
 * **Performance**: This is a runtime search (linear/recursive over the structure). For static sets of machines, this is efficient enough for typical command routing.
-* **Result**: Returns `true` if the target was found and it handled the event. Returns `false` if the target was not found or if the target ignored the event.
+* **Result**: Targeted dispatch returns no result. Unknown targets are ignored.
 
 ### Unified Interface
 
@@ -844,7 +841,7 @@ For comparison, a hand-written switch statement achieves ~7B dispatches/sec but 
 ### 3. Use the queue correctly
 - `dispatch()` always enqueues—it never processes inline
 - Multiple dispatches batch naturally; one `task.resume()` drains all
-- Check `result_t` if queue overflow matters to your application
+- Queue pressure is not surfaced as a dispatch result
 
 ### 4. ISR safety
 - All dispatch methods are ISR-safe by design

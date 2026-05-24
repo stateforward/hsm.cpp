@@ -163,7 +163,7 @@ TEST_CASE("fuzz - multiple seeds") {
   }
 }
 
-TEST_CASE("fuzz - return values are always valid") {
+TEST_CASE("fuzz - process remains stable across random events") {
   FuzzSM sm;
   sm.start();
 
@@ -171,19 +171,16 @@ TEST_CASE("fuzz - return values are always valid") {
   std::uniform_int_distribution<int> dist(0, 2);
 
   for (int i = 0; i < 5000; ++i) {
-    result_t r;
     switch (dist(rng)) {
       case 0:
-        r = sm.process<FuzzA>();
+        sm.process<FuzzA>();
         break;
       case 1:
-        r = sm.process<FuzzB>();
+        sm.process<FuzzB>();
         break;
       default:
-        r = sm.process<FuzzC>();
+        sm.process<FuzzC>();
         break;
     }
-    bool valid_result = (r == QueueFull || r == Processed || r == Deferred);
-    CHECK(valid_result);
   }
 }

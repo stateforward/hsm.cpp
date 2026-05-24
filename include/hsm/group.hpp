@@ -175,13 +175,11 @@ public:
     // ID Accessors
     [[nodiscard]] constexpr std::string_view id() const noexcept override { return id_; }
 
-    // Dispatcher interface - returns result_t like HSM
-    result_t dispatch(const EventBase &e) override {
-        bool any_handled = false;
+    // Dispatcher interface.
+    void dispatch(const EventBase &e) override {
         std::apply([&](auto*... m) {
-            ((m && m->dispatch(e) != QueueFull ? (any_handled = true) : false), ...);
+            ((m ? (m->dispatch(e), void()) : void()), ...);
         }, leaves_);
-        return any_handled ? Processed : QueueFull;
     }
 
     std::string_view state() const noexcept override {
@@ -217,88 +215,83 @@ public:
         return all_started;
     }
 
-    // Dispatch to all (Broadcast) - FLATTENED O(1) call depth
-    // Awaits each child dispatch synchronously and aggregates results.
+    // Dispatch to all (Broadcast) - FLATTENED O(1) call depth.
     template <typename E>
-    result_t dispatch(const E& e) {
-        bool any_handled = false;
+    void dispatch(const E& e) {
         std::apply([&](auto*... m) {
-            (dispatch_one(*m, e, any_handled), ...);
+            (dispatch_one(*m, e), ...);
         }, leaves_);
-        return any_handled ? Processed : QueueFull;
     }
 
     template <detail::fixed_string Name>
-    result_t dispatch() {
-        bool any_handled = false;
+    void dispatch() {
         std::apply([&](auto*... m) {
-            ((m->template dispatch<Name>() != QueueFull ? (any_handled = true) : false), ...);
+            (m->template dispatch<Name>(), ...);
         }, leaves_);
-        return any_handled ? Processed : QueueFull;
     }
 
     // Send (specific machine by ID, recursive)
     template <typename E>
-    result_t dispatch(std::string_view id, const E& e) {
-        bool handled = false;
+    void dispatch(std::string_view id, const E& e) {
+        bool routed = false;
         [&]<std::size_t... Is>(std::index_sequence<Is...>) {
             auto try_send = [&](auto I) {
-                if (handled) return;
+                if (routed) return;
                 auto* child = std::get<I.value>(machines_);
                 using ChildType = typename std::remove_pointer_t<decltype(child)>;
 
                 // 1. Direct ID Match
                 if (child->id() == id) {
-                    if (child->dispatch(e) != QueueFull) handled = true;
+                    child->dispatch(e);
+                    routed = true;
                     return;
                 }
 
                 // 2. Recursive Search
                 if constexpr (is_group_v<ChildType>) {
-                    if (child->dispatch(id, e) != QueueFull) handled = true;
+                    child->dispatch(id, e);
                 }
             };
             (try_send(std::integral_constant<std::size_t, Is>{}), ...);
         }(std::make_index_sequence<sizeof...(Machines)>{});
-        return handled ? Processed : QueueFull;
     }
 
     template <detail::fixed_string Name>
-    result_t dispatch(std::string_view id) {
-        bool handled = false;
+    void dispatch(std::string_view id) {
+        bool routed = false;
         [&]<std::size_t... Is>(std::index_sequence<Is...>) {
             auto try_send = [&](auto I) {
-                if (handled) return;
+                if (routed) return;
                 auto* child = std::get<I.value>(machines_);
                 using ChildType = typename std::remove_pointer_t<decltype(child)>;
 
                 // 1. Direct ID Match
                 if (child->id() == id) {
-                    if (child->template dispatch<Name>() != QueueFull) handled = true;
+                    child->template dispatch<Name>();
+                    routed = true;
                     return;
                 }
 
                 // 2. Recursive Search
                 if constexpr (is_group_v<ChildType>) {
-                    if (child->template dispatch<Name>(id) != QueueFull) handled = true;
+                    child->template dispatch<Name>(id);
                 }
             };
             (try_send(std::integral_constant<std::size_t, Is>{}), ...);
         }(std::make_index_sequence<sizeof...(Machines)>{});
-        return handled ? Processed : QueueFull;
     }
 
 private:
     template <typename M, typename E>
-    static void dispatch_one(M& m, const E& e, bool& any_handled) {
+    static void dispatch_one(M& m, const E& e) {
         if constexpr (requires { M::template supports_event<E>(); }) {
             if constexpr (M::template supports_event<E>()) {
-                if (m.dispatch(e) != QueueFull) any_handled = true;
+                m.dispatch(e);
             } else {
                 (void)e;
             }
         } else {
-            if (m.dispatch(e) != QueueFull) any_handled = true;
+            m.dispatch(e);
         }
     }
 
@@ -318,6 +311,17 @@ template <typename First, typename... Rest>
 requires (!std::is_convertible_v<First, std::string_view>)
 constexpr auto make_group(First& first, Rest&... rest) {
     return Group<First, Rest...>(first, rest...);
+}
+
+template <typename... Machines>
+constexpr auto MakeGroup(std::string_view id, Machines&... items) {
+    return make_group(id, items...);
+}
+
+template <typename First, typename... Rest>
+requires (!std::is_convertible_v<First, std::string_view>)
+constexpr auto MakeGroup(First& first, Rest&... rest) {
+    return make_group(first, rest...);
 }
 
 } // namespace hsm

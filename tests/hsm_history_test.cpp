@@ -8,7 +8,7 @@ using namespace hsm;
 struct E1 : hsm::Event<hsm::make_kind(1, hsm::Kind::Event)> {};
 struct E2 : hsm::Event<hsm::make_kind(2, hsm::Kind::Event)> {};
 struct Enter : hsm::Event<hsm::make_kind(3, hsm::Kind::Event)> {};
-struct Exit : hsm::Event<hsm::make_kind(4, hsm::Kind::Event)> {};
+struct ExitEvent : hsm::Event<hsm::make_kind(4, hsm::Kind::Event)> {};
 struct Back : hsm::Event<hsm::make_kind(5, hsm::Kind::Event)> {};
 struct DeepBack : hsm::Event<hsm::make_kind(6, hsm::Kind::Event)> {};
 
@@ -32,7 +32,7 @@ constexpr auto shallow_model = define(
         state("On",
             transition(on<E2>(), target("/ShallowHistory/Container/Off"))),
             
-        transition(on<Exit>(), target("/ShallowHistory/Outside"))
+        transition(on<ExitEvent>(), target("/ShallowHistory/Outside"))
     )
 );
 
@@ -56,7 +56,7 @@ constexpr auto deep_model = define(
             state("B", transition(on<E2>(), target("/DeepHistory/Container/Level1/A")))
         ),
         
-        transition(on<Exit>(), target("/DeepHistory/Outside"))
+        transition(on<ExitEvent>(), target("/DeepHistory/Outside"))
     )
 );
 
@@ -77,7 +77,7 @@ TEST_CASE("Shallow History") {
     CHECK(sm.state() == "/ShallowHistory/Container/On");
 
     // 3. Exit container
-    sm.dispatch<Exit>();
+    sm.dispatch<ExitEvent>();
     task.resume();
     CHECK(sm.state() == "/ShallowHistory/Outside");
 
@@ -90,7 +90,7 @@ TEST_CASE("Shallow History") {
     sm.dispatch<E2>(); // On -> Off
     task.resume();
     CHECK(sm.state() == "/ShallowHistory/Container/Off");
-    sm.dispatch<Exit>();
+    sm.dispatch<ExitEvent>();
     task.resume();
     sm.dispatch<Back>();
     task.resume();
@@ -113,7 +113,7 @@ TEST_CASE("Deep History") {
     CHECK(sm.state() == "/DeepHistory/Container/Level1/B");
 
     // 3. Exit container
-    sm.dispatch<Exit>();
+    sm.dispatch<ExitEvent>();
     task.resume();
     CHECK(sm.state() == "/DeepHistory/Outside");
 

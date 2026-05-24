@@ -243,10 +243,8 @@ while (!driver.done()) {
 * **Construction**: Supports optional ID, Signal, and Scheduler arguments.
   * `MyMachine("id")`
   * `MyMachine("id", parent_signal)`
-* **`machine.dispatch("event_name")`**: Dispatches an event. Returns `result_t`:
-  * `Processed` - Event enqueued successfully
-  * `QueueFull` - Queue overflow, event rejected
-  * `Deferred` - Event deferred for later processing
+* **`machine.dispatch("event_name")`**: Dispatches an event and returns no result.
+  Drive the machine task (`task.resume()` / `task.await()`) to observe completion.
 * **`machine.state()`**: Returns the current state path as `std::string_view`.
 * **`machine.id()`**: Returns the machine's ID as `std::string_view`.
 

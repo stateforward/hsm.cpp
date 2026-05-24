@@ -612,30 +612,13 @@ Updates a named attribute and emits any associated `dsl.When()` change events.
 - `name` — Attribute name (`std::string_view`)
 - `value` — New value (`const std::any&`) — must hold the exact attribute type
 
-**Returns:** `result_t`
-- `Processed` — Attribute was updated (or value was unchanged)
-- `QueueFull` — Unknown attribute name or type mismatch
+**Returns:** nothing.
 
 **Description:**
 Looks up an attribute by name at runtime, extracts the value via `std::any_cast`, applies change detection, updates the storage, and emits a ChangeEvent if any `dsl.When()` listener is declared for that attribute. Mirrors the behavior of the compile-time `Set<"name">(value)` method.
 
 **Limitations:**
 - Requires exact type match via `std::any_cast` (no implicit conversions unlike the compile-time `Set`)
-- Returns `QueueFull` for both unknown names and type mismatches (caller cannot distinguish the two)
-
----
-
-## Runtime Constants
-
-### Event Dispatch Results
-
-**`QueueFull`** — Event could not be enqueued due to queue capacity
-
-**`Processed`** — Event was successfully enqueued and will be processed
-
-**`Deferred`** — Event was deferred for later processing per `dsl.Defer()` declaration
-
-**Description:**
-Return values from `instance.Dispatch(event)` indicating the outcome of an attempt to queue an event.
+- Unknown names and type mismatches are ignored without emitting change events.
 
 ---

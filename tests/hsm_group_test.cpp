@@ -136,32 +136,28 @@ TEST_CASE("Group - Basic Usage") {
     }
 
     SUBCASE("Send Typed Event to m1") {
-        bool res = group.dispatch("m1", Start{});
+        group.dispatch("m1", Start{});
         t1.resume();
-        CHECK(res);
         CHECK(m1.state() == "/Machine1/running");
         CHECK(m2.state() == "/Machine2/ready"); // Unchanged
     }
 
     SUBCASE("Send Typed Event to m2") {
-        bool res = group.dispatch("m2", Start{});
+        group.dispatch("m2", Start{});
         t2.resume();
-        CHECK(res);
         CHECK(m1.state() == "/Machine1/idle"); // Unchanged
         CHECK(m2.state() == "/Machine2/active");
     }
 
     SUBCASE("Send String Literal Event to m1") {
-        bool res = group.dispatch<"ping">("m1");
+        group.dispatch<"ping">("m1");
         t1.resume();
-        CHECK(res);
         CHECK(m1.state() == "/Machine1/pinged");
         CHECK(m2.state() == "/Machine2/ready"); // Unchanged
     }
 
     SUBCASE("Send to Unknown ID") {
-        bool res = group.dispatch("unknown", Start{});
-        CHECK_FALSE(res);
+        group.dispatch("unknown", Start{});
         CHECK(m1.state() == "/Machine1/idle");
         CHECK(m2.state() == "/Machine2/ready");
     }
@@ -260,29 +256,26 @@ TEST_CASE("Group - Nested Groups") {
 
     SUBCASE("Deep Send by ID (Typed)") {
         // Send to "inner_m1" which is inside "inner"
-        bool res = outer.dispatch("inner_m1", Start{});
+        outer.dispatch("inner_m1", Start{});
         t1.resume();
 
-        CHECK(res);
         CHECK(m1.state() == "/Machine1/running");
         CHECK(m2.state() == "/Machine2/ready"); // Unchanged
     }
 
     SUBCASE("Deep Send by ID (String Literal)") {
-        bool res = outer.dispatch<"ping">("inner_m1");
+        outer.dispatch<"ping">("inner_m1");
         t1.resume();
 
-        CHECK(res);
         CHECK(m1.state() == "/Machine1/pinged");
         CHECK(m2.state() == "/Machine2/ready");
     }
 
     SUBCASE("Send to Inner Group itself") {
         // Sending to "inner" should broadcast to m1
-        bool res = outer.dispatch("inner", Start{});
+        outer.dispatch("inner", Start{});
         t1.resume();
 
-        CHECK(res);
         CHECK(m1.state() == "/Machine1/running");
     }
 }
@@ -302,10 +295,9 @@ TEST_CASE("Group - Wildcard vs Specific Handlers") {
     CHECK(wildcard.state() == "/WildcardOnly/idle");
 
     SUBCASE("Specific handlers win when present") {
-        bool handled = group.dispatch(WildFoo{});
+        group.dispatch(WildFoo{});
         t1.resume();
         t2.resume();
-        CHECK(handled);
 
         // Machine with a specific transition for WildFoo should use it
         CHECK(specific.state() == "/SpecificWildcard/foo");
@@ -314,10 +306,9 @@ TEST_CASE("Group - Wildcard vs Specific Handlers") {
     }
 
     SUBCASE("Wildcards handle events with no specific transition") {
-        bool handled = group.dispatch(WildBar{});
+        group.dispatch(WildBar{});
         t1.resume();
         t2.resume();
-        CHECK(handled);
 
         // Both machines rely on AnyEvent for WildBar
         CHECK(specific.state() == "/SpecificWildcard/any");
@@ -363,50 +354,44 @@ TEST_CASE("Group - Nested Group Shutdown Semantics") {
 
     SUBCASE("Shutdown via inner group ID") {
         // First shutdown should transition both machines to the final state
-        auto handled_first = outer.dispatch("inner", Shutdown{});
+        outer.dispatch("inner", Shutdown{});
         t1.resume();
         t2.resume();
-        CHECK(handled_first == hsm::Processed);
         CHECK(s1.state() == "/Stoppable/off");
         CHECK(s2.state() == "/Stoppable/off");
 
         // Subsequent shutdowns are processed but don't trigger transitions
         // (event is processed even though machines are already off)
-        auto handled_second = outer.dispatch("inner", Shutdown{});
+        outer.dispatch("inner", Shutdown{});
         t1.resume();
         t2.resume();
-        CHECK(handled_second == hsm::Processed);
         CHECK(s1.state() == "/Stoppable/off");
         CHECK(s2.state() == "/Stoppable/off");
     }
 
     SUBCASE("Target specific machine in nested group") {
         // Shutdown a single machine by its leaf ID
-        auto handled_first = outer.dispatch("s1", Shutdown{});
+        outer.dispatch("s1", Shutdown{});
         t1.resume();
-        CHECK(handled_first == hsm::Processed);
         CHECK(s1.state() == "/Stoppable/off");
         CHECK(s2.state() == "/Stoppable/active");
 
         // Further targeted dispatches to the stopped machine are still processed
-        auto handled_again = outer.dispatch("s1", Shutdown{});
+        outer.dispatch("s1", Shutdown{});
         t1.resume();
-        CHECK(handled_again == hsm::Processed);
         CHECK(s1.state() == "/Stoppable/off");
         CHECK(s2.state() == "/Stoppable/active");
 
         // A broadcast still reaches the remaining active machine
-        auto handled_broadcast = outer.dispatch(Shutdown{});
+        outer.dispatch(Shutdown{});
         t1.resume();
         t2.resume();
-        CHECK(handled_broadcast == hsm::Processed);
         CHECK(s1.state() == "/Stoppable/off");
         CHECK(s2.state() == "/Stoppable/off");
 
         // Once all nested machines are stopped, broadcasts are still processed
-        auto handled_broadcast_again = outer.dispatch(Shutdown{});
+        outer.dispatch(Shutdown{});
         t1.resume();
         t2.resume();
-        CHECK(handled_broadcast_again == hsm::Processed);
     }
 }

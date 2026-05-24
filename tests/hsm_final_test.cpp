@@ -22,7 +22,7 @@ struct FinishInner : hsm::Event<hsm::make_kind(10, hsm::Kind::Event)> {};
 struct FinishOuter : hsm::Event<hsm::make_kind(11, hsm::Kind::Event)> {};
 struct Step1 : hsm::Event<hsm::make_kind(12, hsm::Kind::Event)> {};
 struct Step2 : hsm::Event<hsm::make_kind(13, hsm::Kind::Event)> {};
-struct Final : hsm::Event<hsm::make_kind(14, hsm::Kind::Event)> {};
+struct FinalEvent : hsm::Event<hsm::make_kind(14, hsm::Kind::Event)> {};
 struct DeferredEvent : hsm::Event<hsm::make_kind(15, hsm::Kind::Event)> {};
 
 struct FinalStatesInstance {
@@ -136,7 +136,7 @@ constexpr auto rapid_final_model = define(
     state("step1", entry(log_entry_step1),
           transition(on<Step2>(), target("/RapidFinal/step2"))),
     state("step2", entry(log_entry_step2),
-          transition(on<Final>(), target("/RapidFinal/end"))),
+          transition(on<FinalEvent>(), target("/RapidFinal/end"))),
     final("end"));
 
 TEST_CASE("Final States - Basic Functionality") {
@@ -318,7 +318,7 @@ TEST_CASE("Final States - Error Conditions and Edge Cases") {
     task.resume();
     CHECK(sm.state() == "/RapidFinal/step2");
 
-    sm.dispatch<Final>();
+    sm.dispatch<FinalEvent>();
     task.resume();
     CHECK(sm.state() == "/RapidFinal/end");
 
@@ -329,4 +329,3 @@ TEST_CASE("Final States - Error Conditions and Edge Cases") {
     CHECK(sm.execution_log[2] == "entry_step2");
   }
 }
-

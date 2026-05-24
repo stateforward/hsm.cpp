@@ -78,13 +78,12 @@ protected:
   Signal *parent_{nullptr};
 };
 
-// Result type for dispatch operations
-using result_t = std::uint8_t;
-
-// Named constants for dispatch results
-inline constexpr result_t QueueFull = 0;   // Event could not be queued
-inline constexpr result_t Processed = 1;   // Event was processed (handled or ignored)
-inline constexpr result_t Deferred = 2;    // Event was deferred for later processing
+namespace detail {
+using dispatch_status_t = std::uint8_t;
+inline constexpr dispatch_status_t queue_full_status = 0;
+inline constexpr dispatch_status_t processed_status = 1;
+inline constexpr dispatch_status_t deferred_status = 2;
+}
 
 // Header stored before each coroutine frame for type-erased deallocation
 struct FrameHeader {
@@ -1007,6 +1006,40 @@ struct CompletionEvent
 
 struct TimeEvent : Event<static_cast<hsm::kind_t> (hsm::Kind::TimeEvent)> {};
 
+inline constexpr std::size_t SnapshotAttributeNameCapacity = 128;
+
+struct AttributeSnapshot {
+  std::array<char, SnapshotAttributeNameCapacity> Name{};
+  std::size_t NameLen{0};
+  const void *Value{nullptr};
+
+  [[nodiscard]] constexpr std::string_view name() const noexcept {
+    return {Name.data(), NameLen};
+  }
+};
+
+struct EventDetail {
+  std::string_view Name{};
+  hsm::kind_t Kind{0};
+  std::string_view Target{};
+  bool Guard{false};
+  const void *Schema{nullptr};
+};
+
+using EventSnapshot = EventDetail;
+
+template <std::size_t AttributeCapacity, std::size_t EventCapacity>
+struct Snapshot {
+  std::string_view ID{};
+  std::string_view QualifiedName{};
+  std::string_view State{};
+  std::array<AttributeSnapshot, AttributeCapacity> Attributes{};
+  std::size_t AttributeLen{0};
+  std::size_t QueueLen{0};
+  std::array<EventSnapshot, EventCapacity> Events{};
+  std::size_t EventLen{0};
+};
+
 // Note: name-based attribute change events are represented via
 // Event<k> where k is computed from the attribute name and
 // Kind::ChangeEvent; we do not currently expose a dedicated
@@ -1038,7 +1071,7 @@ namespace hsm {
 struct Instance {
   virtual ~Instance() = default;
 
-  virtual result_t dispatch(const EventBase &e) = 0;
+  virtual void dispatch(const EventBase &e) = 0;
   virtual std::string_view id() const noexcept = 0;
   virtual std::string_view state() const noexcept = 0;
   // Note: start() returns Task in HSM (non-virtual, typed).
@@ -1917,6 +1950,187 @@ template <std::size_t N, typename ... Partials>
   );
 }
 
+// Canonical PascalCase DSL surface. Lowercase functions remain supported as
+// C++-native aliases, but dsl.md defines these names as the portable contract.
+template <typename Name, typename ... Partials>
+[[nodiscard]] constexpr auto Define(Name &&name, Partials &&... partials)
+  noexcept(noexcept(define(std::forward<Name>(name),
+                           std::forward<Partials>(partials)...))) {
+  return define(std::forward<Name>(name), std::forward<Partials>(partials)...);
+}
+
+template <typename Name, typename ... Partials>
+[[nodiscard]] constexpr auto State(Name &&name, Partials &&... partials)
+  noexcept(noexcept(state(std::forward<Name>(name),
+                          std::forward<Partials>(partials)...))) {
+  return state(std::forward<Name>(name), std::forward<Partials>(partials)...);
+}
+
+template <typename Name>
+[[nodiscard]] constexpr auto Final(Name &&name)
+  noexcept(noexcept(final(std::forward<Name>(name)))) {
+  return final(std::forward<Name>(name));
+}
+
+template <typename Name, typename ... Partials>
+[[nodiscard]] constexpr auto ShallowHistory(Name &&name, Partials &&... partials)
+  noexcept(noexcept(shallow_history(std::forward<Name>(name),
+                                    std::forward<Partials>(partials)...))) {
+  return shallow_history(std::forward<Name>(name),
+                         std::forward<Partials>(partials)...);
+}
+
+template <typename Name, typename ... Partials>
+[[nodiscard]] constexpr auto DeepHistory(Name &&name, Partials &&... partials)
+  noexcept(noexcept(deep_history(std::forward<Name>(name),
+                                 std::forward<Partials>(partials)...))) {
+  return deep_history(std::forward<Name>(name),
+                      std::forward<Partials>(partials)...);
+}
+
+template <typename Name, typename ... Partials>
+[[nodiscard]] constexpr auto Choice(Name &&name, Partials &&... partials)
+  noexcept(noexcept(choice(std::forward<Name>(name),
+                           std::forward<Partials>(partials)...))) {
+  return choice(std::forward<Name>(name), std::forward<Partials>(partials)...);
+}
+
+template <typename ... Partials>
+[[nodiscard]] constexpr auto Transition(Partials &&... partials)
+  noexcept(noexcept(transition(std::forward<Partials>(partials)...))) {
+  return transition(std::forward<Partials>(partials)...);
+}
+
+template <typename ... Partials>
+[[nodiscard]] constexpr auto Initial(Partials &&... partials)
+  noexcept(noexcept(initial(std::forward<Partials>(partials)...))) {
+  return initial(std::forward<Partials>(partials)...);
+}
+
+template <typename ... Actions>
+[[nodiscard]] constexpr auto Entry(Actions &&... actions)
+  noexcept(noexcept(entry(std::forward<Actions>(actions)...))) {
+  return entry(std::forward<Actions>(actions)...);
+}
+
+template <typename ... Actions>
+[[nodiscard]] constexpr auto Exit(Actions &&... actions)
+  noexcept(noexcept(exit(std::forward<Actions>(actions)...))) {
+  return exit(std::forward<Actions>(actions)...);
+}
+
+template <typename ... Actions>
+[[nodiscard]] constexpr auto Activity(Actions &&... actions)
+  noexcept(noexcept(activity(std::forward<Actions>(actions)...))) {
+  return activity(std::forward<Actions>(actions)...);
+}
+
+template <typename ... Actions>
+[[nodiscard]] constexpr auto Effect(Actions &&... actions)
+  noexcept(noexcept(effect(std::forward<Actions>(actions)...))) {
+  return effect(std::forward<Actions>(actions)...);
+}
+
+template <typename Callable>
+[[nodiscard]] constexpr auto Guard(Callable &&callable)
+  noexcept(noexcept(guard(std::forward<Callable>(callable)))) {
+  return guard(std::forward<Callable>(callable));
+}
+
+template <typename T>
+[[nodiscard]] constexpr auto On()
+  noexcept(noexcept(on<T>())) {
+  return on<T>();
+}
+
+template <typename Name>
+[[nodiscard]] constexpr auto On(Name &&name)
+  noexcept(noexcept(on(std::forward<Name>(name)))) {
+  return on(std::forward<Name>(name));
+}
+
+template <typename Name>
+[[nodiscard]] constexpr auto OnCall(Name &&name)
+  noexcept(noexcept(on_call(std::forward<Name>(name)))) {
+  return on_call(std::forward<Name>(name));
+}
+
+template <typename Name>
+[[nodiscard]] constexpr auto When(Name &&name)
+  noexcept(noexcept(when(std::forward<Name>(name)))) {
+  return when(std::forward<Name>(name));
+}
+
+template <typename Name>
+[[nodiscard]] constexpr auto OnSet(Name &&name)
+  noexcept(noexcept(on_set(std::forward<Name>(name)))) {
+  return on_set(std::forward<Name>(name));
+}
+
+template <typename Source>
+[[nodiscard]] constexpr auto After(Source &&source)
+  noexcept(noexcept(after(std::forward<Source>(source)))) {
+  return after(std::forward<Source>(source));
+}
+
+template <typename Source>
+[[nodiscard]] constexpr auto Every(Source &&source)
+  noexcept(noexcept(every(std::forward<Source>(source)))) {
+  return every(std::forward<Source>(source));
+}
+
+template <typename Source>
+[[nodiscard]] constexpr auto At(Source &&source)
+  noexcept(noexcept(at(std::forward<Source>(source)))) {
+  return at(std::forward<Source>(source));
+}
+
+template <typename Path>
+[[nodiscard]] constexpr auto Source(Path &&path)
+  noexcept(noexcept(source(std::forward<Path>(path)))) {
+  return source(std::forward<Path>(path));
+}
+
+template <typename Path>
+[[nodiscard]] constexpr auto Target(Path &&path)
+  noexcept(noexcept(target(std::forward<Path>(path)))) {
+  return target(std::forward<Path>(path));
+}
+
+template <typename ... Events>
+[[nodiscard]] constexpr auto Defer()
+  noexcept(noexcept(defer<Events...>())) {
+  return defer<Events...>();
+}
+
+template <typename T, typename Name>
+[[nodiscard]] constexpr auto Attribute(Name &&name)
+  noexcept(noexcept(attribute<T>(std::forward<Name>(name)))) {
+  return attribute<T>(std::forward<Name>(name));
+}
+
+template <typename T, typename Name, typename U>
+[[nodiscard]] constexpr auto Attribute(Name &&name, U &&default_value)
+  noexcept(noexcept(attribute<T>(std::forward<Name>(name),
+                                 std::forward<U>(default_value)))) {
+  return attribute<T>(std::forward<Name>(name),
+                      std::forward<U>(default_value));
+}
+
+template <typename Name, typename U>
+[[nodiscard]] constexpr auto Attribute(Name &&name, U &&default_value)
+  noexcept(noexcept(attribute(std::forward<Name>(name),
+                              std::forward<U>(default_value)))) {
+  return attribute(std::forward<Name>(name), std::forward<U>(default_value));
+}
+
+template <typename Name, typename Callable>
+[[nodiscard]] constexpr auto Operation(Name &&name, Callable &&callable)
+  noexcept(noexcept(operation(std::forward<Name>(name),
+                              std::forward<Callable>(callable)))) {
+  return operation(std::forward<Name>(name), std::forward<Callable>(callable));
+}
+
 template <auto Model,
           typename Self = unit_instance,
           typename ClockT = hsm::Clock,
@@ -2006,6 +2220,7 @@ struct HSM : Instance {
 
   static constexpr std::size_t attribute_count =
     std::tuple_size_v<std::remove_cvref_t<decltype(attribute_tuple)>>;
+  using snapshot_type = Snapshot<attribute_count, queue_capacity * 2U>;
 
   static constexpr std::size_t operation_count =
     std::tuple_size_v<std::remove_cvref_t<decltype(operation_tuple)>>;
@@ -3082,7 +3297,7 @@ struct HSM : Instance {
   Queue queue_{};
 
   // Separate deferred event pool (UML 2.5 compliant).
-  // Deferred events are moved here during processing and recalled to the
+  // deferred_status events are moved here during processing and recalled to the
   // main queue when state changes. This ensures deferred events don't block
   // non-deferred events from being enqueued or processed.
   std::array<QueueEntry, queue_storage_size> deferred_queue_{};
@@ -3097,7 +3312,7 @@ struct HSM : Instance {
 
   // Results ring buffer - stores dispatch results indexed by sequence number.
   // Size matches queue to ensure results aren't overwritten before being read.
-  std::array<result_t, queue_storage_size> results_{};
+  std::array<detail::dispatch_status_t, queue_storage_size> results_{};
 
   std::array<SignalType, total_activity_count> activity_contexts_{};
   std::array<std::optional<ActiveTask>, total_activity_count> active_tasks_{};
@@ -3523,6 +3738,22 @@ public:
     return normalized_model.get_state_name (current_state_id_);
   }
 
+  [[nodiscard]] snapshot_type takeSnapshot() const noexcept {
+    snapshot_type snapshot{};
+    snapshot.ID = id();
+    snapshot.QualifiedName = normalized_model.get_state_name(0);
+    snapshot.State = state();
+    snapshot.QueueLen = queue_.Len() + (deferred_tail_ - deferred_head_);
+
+    append_snapshot_attributes(snapshot);
+    append_snapshot_queue_events(snapshot);
+    return snapshot;
+  }
+
+  [[nodiscard]] snapshot_type TakeSnapshot() const noexcept {
+    return takeSnapshot();
+  }
+
   // 8. Public Methods
   // Compile-time capability query: does this HSM know how to handle
   // events of type E (including via AnyEvent wildcard)? This is used by
@@ -3557,19 +3788,19 @@ public:
   }
 
   template <typename T>
-  result_t dispatch() noexcept {
+  void dispatch() noexcept {
     // Compile-time lookup for typed events
     constexpr auto kind = T::kind;
     constexpr std::size_t id = event_index<kind>();
-    return dispatch_typed_by_id<id>(T{});
+    (void)dispatch_typed_by_id<id>(T{});
   }
 
   template <typename T>
-  result_t dispatch(const T &e) noexcept {
+  void dispatch(const T &e) noexcept {
     // Compile-time lookup for typed events
     constexpr auto kind = T::kind;
     constexpr std::size_t id = event_index<kind>();
-    return dispatch_typed_by_id<id>(e);
+    (void)dispatch_typed_by_id<id>(e);
   }
 
   // Synchronous dispatch: process event inline without queue or coroutine.
@@ -3578,17 +3809,17 @@ public:
   // cross-thread dispatch.  Bypasses the event queue, atomics, variant
   // storage, and coroutine resume/suspend entirely.
   template <typename T>
-  constexpr result_t process() noexcept {
+  constexpr void process() noexcept {
     constexpr auto kind = T::kind;
     constexpr std::size_t id = event_index<kind>();
-    return dispatch_typed_by_id_core<id>(T{});
+    (void)dispatch_typed_by_id_core<id>(T{});
   }
 
   template <typename T>
-  constexpr result_t process(const T &e) noexcept {
+  constexpr void process(const T &e) noexcept {
     constexpr auto kind = T::kind;
     constexpr std::size_t id = event_index<kind>();
-    return dispatch_typed_by_id_core<id>(e);
+    (void)dispatch_typed_by_id_core<id>(e);
   }
 
   // Operation invocation API. Resolves the named operation at
@@ -3703,9 +3934,8 @@ public:
 
   // Runtime attribute mutation: update storage and emit ChangeEvent-kind
   // events that drive when("name") transitions.
-  // Returns result_t. Fire-and-forget: sm.set<"attr">(value);
   template <detail::fixed_string Name, typename V>
-  result_t set(V &&value) noexcept {
+  void set(V &&value) noexcept {
     constexpr std::size_t idx = attribute_index<Name>();
     static_assert(idx != detail::invalid_index,
                   "hsm::HSM::set<Name>() requires an attribute declared with that name");
@@ -3723,7 +3953,7 @@ public:
       changed = (slot != new_value);
     }
     }
-    if (!changed) return Processed;
+    if (!changed) return;
 
     slot = new_value;
 
@@ -3736,20 +3966,15 @@ public:
     constexpr std::size_t id = event_index<k>();
     if constexpr (id != detail::invalid_index) {
       using E = Event<k>;
-      return dispatch_typed_by_id<id>(E{});
-    } else {
-      return Processed;
+      (void)dispatch_typed_by_id<id>(E{});
     }
   }
 
   // Runtime name-keyed attribute mutation using std::any for type erasure.
-  // Returns QueueFull for unknown name or type mismatch, Processed otherwise.
-  result_t set(std::string_view name, const std::any& value) noexcept {
+  void set(std::string_view name, const std::any& value) noexcept {
     if constexpr (attribute_count == 0) {
       (void)name; (void)value;
-      return QueueFull;
     } else {
-      result_t result = QueueFull;
       bool found = false;
       for_each_index<0, attribute_count>([&](auto I) {
         if (found) return;
@@ -3760,7 +3985,7 @@ public:
         using T = std::tuple_element_t<idx, attribute_storage_type>;
 
         const T* ptr = std::any_cast<T>(&value);
-        if (!ptr) { result = QueueFull; return; }
+        if (!ptr) return;
 
         auto& slot = std::get<idx>(attributes_);
         T new_value = *ptr;
@@ -3773,7 +3998,7 @@ public:
             changed = (slot != new_value);
           }
         }
-        if (!changed) { result = Processed; return; }
+        if (!changed) return;
 
         slot = new_value;
 
@@ -3782,12 +4007,9 @@ public:
         constexpr std::size_t event_id = event_index<k>();
         if constexpr (event_id != detail::invalid_index) {
           using E = Event<k>;
-          result = dispatch_typed_by_id<event_id>(E{});
-        } else {
-          result = Processed;
+          (void)dispatch_typed_by_id<event_id>(E{});
         }
       });
-      return result;
     }
   }
 
@@ -3837,7 +4059,7 @@ public:
   // Fire-and-forget enqueue for polymorphic dispatch (ISR-safe)
   // Just enqueues and returns immediately - does NOT wait for processing
   template <std::size_t EventId, typename E>
-  result_t enqueue_typed_by_id(const E &e) noexcept {
+  detail::dispatch_status_t enqueue_typed_by_id(const E &e) noexcept {
     static_assert(
       EventId != detail::invalid_index,
       "enqueue_typed_by_id used with invalid EventId"
@@ -3845,31 +4067,31 @@ public:
 
     if constexpr (!can_enqueue_event_v<EventId, E> && !is_any_event_slot_v<EventId>) {
       (void)e;
-      return QueueFull;
+      return detail::queue_full_status;
     } else {
       // Increment sequence and enqueue
       enqueue_seq_.fetch_add(1, std::memory_order_acq_rel);
       if constexpr (can_enqueue_event_v<EventId, E>) {
-        return enqueue_event<EventId>(e) ? Processed : QueueFull;
+        return enqueue_event<EventId>(e) ? detail::processed_status : detail::queue_full_status;
       } else {
         // Wildcard slot: substitute AnyEvent{}, mark as fallback.
         // Fallback events are NOT subject to defer<AnyEvent>() deferral.
         // This ensures typed events like WildEvent don't get deferred
         // when dispatched via AnyEvent fallback slot.
-        return enqueue_event<EventId>(AnyEvent{}, /*is_fallback=*/true) ? Processed : QueueFull;
+        return enqueue_event<EventId>(AnyEvent{}, /*is_fallback=*/true) ? detail::processed_status : detail::queue_full_status;
       }
     }
   }
 
-  using DispatchThunk = result_t (HSM::*)(const EventBase &);
+  using DispatchThunk = void (HSM::*)(const EventBase &);
 
   template <std::size_t I>
-  result_t dispatch_thunk_impl(const EventBase &e) {
+  void dispatch_thunk_impl(const EventBase &e) {
       using E = std::tuple_element_t<I, std::remove_cvref_t<decltype(event_types_tuple)>>;
       if constexpr (std::is_same_v<E, PlaceholderEvent> || !std::is_base_of_v<EventBase, E>) {
-          return QueueFull;
+          (void)e;
       } else {
-          return this->template dispatch_typed_by_id<I>(static_cast<const E&>(e));
+          (void)this->template dispatch_typed_by_id<I>(static_cast<const E&>(e));
       }
   }
 
@@ -3883,15 +4105,14 @@ public:
       return arr;
   }();
 
-  // Polymorphic dispatch - returns result_t like typed dispatch.
-  result_t dispatch(const EventBase &e) override {
+  // Polymorphic dispatch.
+  void dispatch(const EventBase &e) override {
       const auto k = e.kind_value();
       const std::size_t* id_ptr = KindToEventIdMap::map.find(k);
 
       if (id_ptr != nullptr) {
-          return (this->*dispatch_thunks[*id_ptr])(e);
+          (this->*dispatch_thunks[*id_ptr])(e);
       }
-      return QueueFull;
   }
 
   template <detail::fixed_string Name, typename... U>
@@ -3912,15 +4133,98 @@ public:
   }
 
   template <detail::fixed_string Name>
-  result_t dispatch() noexcept {
+  void dispatch() noexcept {
     // Compute kind the same way extract_all_events_nttp does for on("literal")
     constexpr auto hash = detail::fnv1a_64(Name.view());
     constexpr auto k = hsm::make_kind(hash, hsm::Kind::Event);
     using E = Event<k>;
-    return dispatch<E>();
+    dispatch<E>();
   }
 
 private:
+  static constexpr std::string_view transition_target_for_event(
+      std::size_t event_id) noexcept {
+    for (const auto &transition : normalized_model.transitions) {
+      if (transition.event_id == event_id &&
+          transition.target_id != detail::invalid_index) {
+        return normalized_model.get_state_name(transition.target_id);
+      }
+    }
+    return {};
+  }
+
+  static constexpr bool transition_guard_for_event(std::size_t event_id) noexcept {
+    for (const auto &transition : normalized_model.transitions) {
+      if (transition.event_id == event_id) {
+        return transition.guard_idx != detail::invalid_index;
+      }
+    }
+    return false;
+  }
+
+  static constexpr EventSnapshot snapshot_event_for_id(std::size_t event_id) noexcept {
+    EventSnapshot event{};
+    if (event_id < normalized_model.event_count) {
+      event.Name = normalized_model.get_event_name(event_id);
+      event.Kind = normalized_model.events[event_id].kind;
+      event.Target = transition_target_for_event(event_id);
+      event.Guard = transition_guard_for_event(event_id);
+    }
+    return event;
+  }
+
+  void append_snapshot_event(snapshot_type &snapshot,
+                             const QueueEntry &entry) const noexcept {
+    if (snapshot.EventLen >= snapshot.Events.size()) return;
+    snapshot.Events[snapshot.EventLen] = snapshot_event_for_id(entry.event_id);
+    ++snapshot.EventLen;
+  }
+
+  void append_snapshot_queue_events(snapshot_type &snapshot) const noexcept {
+    const auto head = queue_.head.load(std::memory_order_seq_cst);
+    const auto tail = queue_.tail.load(std::memory_order_seq_cst);
+    for (std::size_t seq = head; seq < tail; ++seq) {
+      append_snapshot_event(snapshot, queue_.entries[seq % queue_capacity]);
+    }
+    for (std::size_t seq = deferred_head_; seq < deferred_tail_; ++seq) {
+      append_snapshot_event(snapshot, deferred_queue_[seq % queue_capacity]);
+    }
+  }
+
+  template <std::size_t I>
+  void append_snapshot_attribute(snapshot_type &snapshot) const noexcept {
+    if (snapshot.AttributeLen >= snapshot.Attributes.size()) return;
+
+    constexpr auto desc = std::get<I>(attribute_tuple);
+    auto &attribute = snapshot.Attributes[snapshot.AttributeLen];
+    const auto root = normalized_model.get_state_name(0);
+    std::size_t len = 0;
+
+    for (char ch : root) {
+      if (len >= attribute.Name.size()) break;
+      attribute.Name[len++] = ch;
+    }
+    if (len < attribute.Name.size()) {
+      attribute.Name[len++] = '/';
+    }
+    for (char ch : desc.name.view()) {
+      if (len >= attribute.Name.size()) break;
+      attribute.Name[len++] = ch;
+    }
+
+    attribute.NameLen = len;
+    attribute.Value = &std::get<I>(attributes_);
+    ++snapshot.AttributeLen;
+  }
+
+  void append_snapshot_attributes(snapshot_type &snapshot) const noexcept {
+    if constexpr (attribute_count > 0) {
+      for_each_index<0, attribute_count>([&](auto I) {
+        append_snapshot_attribute<I.value>(snapshot);
+      });
+    }
+  }
+
   // --- Unified queue helpers -------------------------------------------------
 
   [[nodiscard]] bool queue_empty() const noexcept {
@@ -3958,7 +4262,7 @@ private:
   template <std::size_t EventId, typename E>
   bool enqueue_deferred(const E &e) noexcept {
     if (deferred_queue_full()) {
-      return false;  // Deferred queue overflow - drop the event
+      return false;  // deferred_status queue overflow - drop the event
     }
     const std::size_t index = deferred_tail_ % queue_capacity;
     deferred_queue_[index].event.template emplace<EventId>(e);
@@ -3998,7 +4302,7 @@ private:
     }
   }
 
-  // Drain all events from main queue. Deferred events are moved to the
+  // Drain all events from main queue. deferred_status events are moved to the
   // separate deferred queue. After state changes, deferred events are
   // recalled to the main queue for reconsideration.
   //
@@ -4045,8 +4349,8 @@ private:
 
         queue_.CommitPop();
 
-        // Mark as processed (Deferred) - store instead of fetch_add (single consumer)
-        results_[seq % queue_capacity] = Deferred;
+        // Mark as processed (deferred_status) - store instead of fetch_add (single consumer)
+        results_[seq % queue_capacity] = detail::deferred_status;
         ++seq;
         processed_seq_.store(seq, std::memory_order_release);
         continue;
@@ -4054,7 +4358,7 @@ private:
 
       // Event is not deferred - process it
       // Use static_switch on stored_event_id instead of std::visit for better performance
-      result_t result = Processed;
+      detail::dispatch_status_t result = detail::processed_status;
       if constexpr (normalized_model.event_count > 0) {
         if (stored_event_id < normalized_model.event_count) {
           static_switch<0, normalized_model.event_count>(
@@ -4091,7 +4395,7 @@ private:
   }
 
   template <std::size_t EventId, typename E>
-  constexpr result_t dispatch_typed_by_id_core(const E &e) noexcept {
+  constexpr detail::dispatch_status_t dispatch_typed_by_id_core(const E &e) noexcept {
     // For typed dispatch we require that the event kind is actually present
     // in the model. Using an event type that never appears in the model is
     // a programming error and is rejected at compile time.
@@ -4114,17 +4418,17 @@ private:
         }
       );
     }
-    return Processed;
+    return detail::processed_status;
   }
 
   // Runtime dispatch using stored event_id - uses dispatch thunks table
   template <typename E>
-  result_t dispatch_by_event_id(std::size_t event_id, const E &e) noexcept {
+  detail::dispatch_status_t dispatch_by_event_id(std::size_t event_id, const E &e) noexcept {
     if (event_id >= normalized_model.event_count) {
-      return Processed;
+      return detail::processed_status;
     }
     // Use static_switch on event_id to call the correct typed dispatch
-    result_t result = Processed;
+    detail::dispatch_status_t result = detail::processed_status;
     static_switch<0, normalized_model.event_count>(
       event_id,
       [&](auto I) {
@@ -4151,17 +4455,17 @@ private:
   // ISR-safe dispatch: enqueue event, wake engine, return immediately.
   // Processing happens in the engine task, not inline.
   template <std::size_t EventId, typename E>
-  result_t dispatch_typed_by_id(const E &e) noexcept {
+  detail::dispatch_status_t dispatch_typed_by_id(const E &e) noexcept {
     static_assert(
       EventId != detail::invalid_index,
       "hsm::HSM::dispatch<T>() used with event type T whose kind is not present in the model"
     );
 
     // Delegate to fire-and-forget enqueue
-    result_t result = enqueue_typed_by_id<EventId>(e);
+    detail::dispatch_status_t result = enqueue_typed_by_id<EventId>(e);
 
     // Wake the engine to process the queued event
-    if (result == Processed) {
+    if (result == detail::processed_status) {
       wake_signal_.set();
     }
 
@@ -4745,7 +5049,7 @@ private:
   using transition_chain = compile_time_chain<StateId, EventId>;
 
   template <std::size_t StateId, std::size_t EventId, typename E>
-  constexpr result_t dispatch_chain(SignalType &signal, const E &e) noexcept {
+  constexpr detail::dispatch_status_t dispatch_chain(SignalType &signal, const E &e) noexcept {
     using chain = transition_chain<StateId, EventId>;
 
     // For typed dispatch with a valid EventId, we always use the
@@ -4753,7 +5057,7 @@ private:
     // event-id-based dispatcher.
     if constexpr (chain::length == 0U) {
       // No transitions at all for this (state,event) pair.
-      return Processed;  // Event was processed but no transition matched
+      return detail::processed_status;  // Event was processed but no transition matched
     } else {
       // Specialized chain execution with guard checking; iterate
       // through candidates using short-circuiting.
@@ -4773,7 +5077,7 @@ private:
           return false;
         }
       );
-      return Processed;
+      return detail::processed_status;
     }
   }
 
@@ -4781,7 +5085,7 @@ private:
   // detect at compile time when there is a single, guardless, non-history
   // transition and call execute_transition directly.
   template <std::size_t StateId, std::size_t EventId, typename E>
-  constexpr result_t dispatch_typed_from_state(SignalType &signal,
+  constexpr detail::dispatch_status_t dispatch_typed_from_state(SignalType &signal,
                                            const E &e) noexcept {
     using chain = compile_time_chain<StateId, EventId>;
 
@@ -4789,7 +5093,7 @@ private:
     if constexpr (chain::length == 1 && !chain::has_guards && !chain::has_history) {
       // Direct execution without try_match iteration
       execute_transition_optimized<chain::ids[0]>(signal, e);
-      return Processed;
+      return detail::processed_status;
     } else {
       // Fall back to chain dispatch for complex cases
       return dispatch_chain<StateId, EventId>(signal, e);
@@ -5382,6 +5686,50 @@ private:
   }
 
 };
+
+template <typename Context, typename Machine>
+[[nodiscard]] auto TakeSnapshot(Context &ctx, const Machine &machine)
+    noexcept(noexcept(machine.takeSnapshot()))
+    -> decltype(machine.takeSnapshot()) {
+  (void) ctx;
+  return machine.takeSnapshot();
+}
+
+template <typename Context, typename Machine>
+[[nodiscard]] auto TakeSnapshot(const Context &ctx, const Machine &machine)
+    noexcept(noexcept(machine.takeSnapshot()))
+    -> decltype(machine.takeSnapshot()) {
+  (void) ctx;
+  return machine.takeSnapshot();
+}
+
+template <typename Machine>
+[[nodiscard]] auto TakeSnapshot(const Machine &machine)
+    noexcept(noexcept(machine.takeSnapshot()))
+    -> decltype(machine.takeSnapshot()) {
+  return machine.takeSnapshot();
+}
+
+template <typename Context, typename Machine>
+[[nodiscard]] auto take_snapshot(Context &ctx, const Machine &machine)
+    noexcept(noexcept(TakeSnapshot(ctx, machine)))
+    -> decltype(TakeSnapshot(ctx, machine)) {
+  return TakeSnapshot(ctx, machine);
+}
+
+template <typename Context, typename Machine>
+[[nodiscard]] auto take_snapshot(const Context &ctx, const Machine &machine)
+    noexcept(noexcept(TakeSnapshot(ctx, machine)))
+    -> decltype(TakeSnapshot(ctx, machine)) {
+  return TakeSnapshot(ctx, machine);
+}
+
+template <typename Machine>
+[[nodiscard]] auto take_snapshot(const Machine &machine)
+    noexcept(noexcept(TakeSnapshot(machine)))
+    -> decltype(TakeSnapshot(machine)) {
+  return TakeSnapshot(machine);
+}
 } // namespace hsm
 
 #endif // HSM_HSM_HPP

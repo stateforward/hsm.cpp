@@ -83,6 +83,15 @@ constexpr kind_t make_kind(std::string_view name, TBases... bases) {
   return make_kind(detail::fnv1a_64(name), std::forward<TBases>(bases)...);
 }
 
+template <typename... TBases>
+constexpr kind_t MakeKind(kind_t id = 0, TBases... bases) {
+  return make_kind(id, std::forward<TBases>(bases)...);
+}
+
+template<typename... TBases>
+constexpr kind_t MakeKind(std::string_view name, TBases... bases) {
+  return make_kind(name, std::forward<TBases>(bases)...);
+}
 
 template <typename Tkind, typename TBase, typename... TBases>
 constexpr bool is_kind(Tkind kind, TBase base, TBases... bases) {
@@ -104,6 +113,10 @@ constexpr bool is_kind(Tkind kind, TBase base) {
   return false;
 }
 
+template <typename Tkind, typename TBase, typename... TBases>
+constexpr bool IsKind(Tkind kind, TBase base, TBases... bases) {
+  return is_kind(kind, base, bases...);
+}
 
 constexpr kind_t base(kind_t kind) { return kind >> kind::id_length; }
 

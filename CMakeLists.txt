@@ -1,5 +1,5 @@
 cmake_minimum_required(VERSION 3.16)
-project(hsm VERSION 0.1.0)
+project(hsm VERSION 0.2.0)
 
 # Workaround for doctest FetchContent compatibility
 set(CMAKE_POLICY_DEFAULT_CMP0048 NEW)

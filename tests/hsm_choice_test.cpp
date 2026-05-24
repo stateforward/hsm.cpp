@@ -14,7 +14,7 @@ struct Choose : hsm::Event<hsm::make_kind(101, hsm::Kind::Event)> {};
 struct Test : hsm::Event<hsm::make_kind(102, hsm::Kind::Event)> {};
 struct Go : hsm::Event<hsm::make_kind(103, hsm::Kind::Event)> {};
 struct Decide : hsm::Event<hsm::make_kind(104, hsm::Kind::Event)> {};
-struct Exit : hsm::Event<hsm::make_kind(105, hsm::Kind::Event)> {};
+struct ExitEvent : hsm::Event<hsm::make_kind(105, hsm::Kind::Event)> {};
 struct First : hsm::Event<hsm::make_kind(106, hsm::Kind::Event)> {};
 struct Second : hsm::Event<hsm::make_kind(107, hsm::Kind::Event)> {};
 struct Next : hsm::Event<hsm::make_kind(108, hsm::Kind::Event)> {};
@@ -235,7 +235,7 @@ constexpr auto nested_choice_model = define(
                  transition(target("/NestedChoice/container/negative"))),
           state("positive", entry(entry_positive)),
           state("negative", entry(entry_negative)),
-          transition(on<Exit>(), target("/NestedChoice/outside"))),
+          transition(on<ExitEvent>(), target("/NestedChoice/outside"))),
     state("outside", entry(entry_outside)));
 
 constexpr auto sequential_choices_model = define(
@@ -453,7 +453,7 @@ TEST_CASE("Choice States - Hierarchical Scenarios") {
     CHECK(sm.state() == "/NestedChoice/container/positive");
 
     // Exit the container state
-    sm.dispatch<Exit>();
+    sm.dispatch<ExitEvent>();
     task.resume();
     CHECK(sm.state() == "/NestedChoice/outside");
 
@@ -575,6 +575,5 @@ TEST_CASE("Choice States - Recursive Chains") {
     task.resume();
     CHECK(sm.state() == "/RecursiveChoice/final");
 }
-
 
 

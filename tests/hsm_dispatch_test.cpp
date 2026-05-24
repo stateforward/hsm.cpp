@@ -11,7 +11,7 @@ struct Done : hsm::Event<hsm::make_kind(12, hsm::Kind::Event)> {};
 struct Next : hsm::Event<hsm::make_kind(13, hsm::Kind::Event)> {};
 struct Reset : hsm::Event<hsm::make_kind(14, hsm::Kind::Event)> {};
 struct ToB : hsm::Event<hsm::make_kind(15, hsm::Kind::Event)> {};
-struct Exit : hsm::Event<hsm::make_kind(16, hsm::Kind::Event)> {};
+struct ExitEvent : hsm::Event<hsm::make_kind(16, hsm::Kind::Event)> {};
 struct BackDeep : hsm::Event<hsm::make_kind(17, hsm::Kind::Event)> {};
 struct ToY : hsm::Event<hsm::make_kind(18, hsm::Kind::Event)> {};
 struct BackShallow : hsm::Event<hsm::make_kind(19, hsm::Kind::Event)> {};
@@ -60,7 +60,7 @@ constexpr auto history_deep_model = define(
     state("region",
           state("A",
                 transition(on<ToB>(), target("/HistoryDeep/region/B"))),
-          state("B", transition(on<Exit>(), target("/HistoryDeep/outside")))),
+          state("B", transition(on<ExitEvent>(), target("/HistoryDeep/outside")))),
     state("outside",
           transition(on<BackDeep>(),
                      target(deep_history("/HistoryDeep/region")))));
@@ -74,7 +74,7 @@ constexpr auto history_shallow_model = define(
                                  target("/HistoryShallow/C/Y"))),
                 state("X2")),
           state("Y",
-                transition(on<Exit>(), target("/HistoryShallow/outside")))),
+                transition(on<ExitEvent>(), target("/HistoryShallow/outside")))),
     state("outside",
           transition(on<BackShallow>(),
                      target(shallow_history("/HistoryShallow/C")))));
@@ -251,7 +251,7 @@ struct HistoryInstance {};
     task.resume();
     CHECK(sm.state() == "/HistoryDeep/region/B");
 
-    sm.dispatch<Exit>();
+    sm.dispatch<ExitEvent>();
     task.resume();
     CHECK(sm.state() == "/HistoryDeep/outside");
 
@@ -273,7 +273,7 @@ struct HistoryInstance {};
     task.resume();
     CHECK(sm.state() == "/HistoryShallow/C/Y");
 
-    sm.dispatch<Exit>();
+    sm.dispatch<ExitEvent>();
     task.resume();
     CHECK(sm.state() == "/HistoryShallow/outside");
 

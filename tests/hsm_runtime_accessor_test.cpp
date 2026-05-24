@@ -61,39 +61,36 @@ TEST_CASE("Runtime set - known attribute with correct type updates value") {
   struct Machine : RuntimeAttrInstance, HSM<runtime_model, Machine> {};
   Machine sm;
 
-  result_t r = sm.set("unused", std::any(999));
-  CHECK(r == Processed);
+  sm.set("unused", std::any(999));
   CHECK(sm.get<"unused">() == 999);
 }
 
-TEST_CASE("Runtime set - known attribute with wrong type returns QueueFull") {
+TEST_CASE("Runtime set - known attribute with wrong type is ignored") {
   struct Machine : RuntimeAttrInstance, HSM<runtime_model, Machine> {};
   Machine sm;
 
   // "value" is int, pass a string
-  result_t r = sm.set("value", std::any(std::string("wrong")));
-  CHECK(r == QueueFull);
+  sm.set("value", std::any(std::string("wrong")));
   // Value unchanged
   CHECK(sm.get<"value">() == 0);
 }
 
-TEST_CASE("Runtime set - unknown attribute returns QueueFull") {
+TEST_CASE("Runtime set - unknown attribute is ignored") {
   struct Machine : RuntimeAttrInstance, HSM<runtime_model, Machine> {};
   Machine sm;
 
-  result_t r = sm.set("nonexistent", std::any(42));
-  CHECK(r == QueueFull);
+  sm.set("nonexistent", std::any(42));
+  CHECK_FALSE(sm.get("nonexistent").has_value());
 }
 
-TEST_CASE("Runtime set - same value returns Processed without triggering event") {
+TEST_CASE("Runtime set - same value does not trigger event") {
   struct Machine : RuntimeAttrInstance, HSM<runtime_model, Machine> {};
   Machine sm;
 
   auto task = sm.start();
   // value is already 0, set to 0 again
-  result_t r = sm.set("value", std::any(0));
+  sm.set("value", std::any(0));
   task.resume();
-  CHECK(r == Processed);
   CHECK(sm.value_triggers == 0);
 }
 
@@ -103,18 +100,16 @@ TEST_CASE("Runtime set - attribute with when() listener triggers transition") {
 
   auto task = sm.start();
 
-  result_t r = sm.set("value", std::any(10));
+  sm.set("value", std::any(10));
   task.resume();
 
-  CHECK(r == Processed);
   CHECK(sm.get<"value">() == 10);
   CHECK(sm.value_triggers == 1);
 
   // Second mutation triggers again
-  r = sm.set("value", std::any(20));
+  sm.set("value", std::any(20));
   task.resume();
 
-  CHECK(r == Processed);
   CHECK(sm.get<"value">() == 20);
   CHECK(sm.value_triggers == 2);
 }

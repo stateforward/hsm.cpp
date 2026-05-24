@@ -24,12 +24,12 @@ constexpr auto dispatch_return_model = define(
     state("Working", transition(on<EventBack>(), target("/ReturnTest/Idle"))),
     initial(target("/ReturnTest/Idle")));
 
-TEST_CASE("Hsm Dispatch Return Value") {
+TEST_CASE("Hsm dispatch completes through no-value path") {
   struct Machine : HSM<dispatch_return_model, Machine> {};
   Machine sm;
   auto task = sm.start();
 
-  SUBCASE("Returns Processed when handled") {
+  SUBCASE("handled event transitions") {
     sm.dispatch<EventHandled>();
     task.resume();
     CHECK(sm.state() == "/ReturnTest/Working");
@@ -43,19 +43,19 @@ TEST_CASE("Hsm Dispatch Return Value") {
   // because EventUnknown's kind does not appear in the model. This is
   // intentional: using an event type that is not part of the model is
   // treated as a hard error rather than a silent no-op.
-  SUBCASE("Returns Processed when guarded false (event was processed but ignored)") {
+  SUBCASE("guarded false event is processed but ignored") {
     sm.dispatch<EventGuarded>();
     task.resume();
     CHECK(sm.state() == "/ReturnTest/Idle");
   }
 
-  SUBCASE("Returns Processed when guarded true") {
+  SUBCASE("guarded true event transitions") {
     sm.dispatch<EventGuardedTrue>();
     task.resume();
     CHECK(sm.state() == "/ReturnTest/Working");
   }
 
-  SUBCASE("Returns Deferred when deferred") {
+  SUBCASE("deferred event is retained without dispatch result") {
     sm.dispatch<EventDeferred>();
     task.resume();
     CHECK(sm.state() == "/ReturnTest/Idle");
